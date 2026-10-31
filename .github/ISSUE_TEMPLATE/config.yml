@@ -1,0 +1,7 @@
+# GitHub Issue Template configuration for CHROMA 3D
+# Blank issues are disabled so bug reports and feature requests
+# arrive pre-filled with useful information.
+blank_issues_enabled: false
+
+# No external contact channels configured.
+contact_links: []
