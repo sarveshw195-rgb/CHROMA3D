@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CHROMA 3D — Paint in Space · Our Version of Paint 3D</title>
+  <meta name="description" content="CHROMA 3D — a professional browser-based 3D paint studio inspired by Microsoft Paint 3D, rebuilt from a REA reverse-engineering case study." />
+  <style>
+    /* self-hosted fonts — identical letterforms offline & inside the exe */
+    @font-face { font-family: "Anton"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/anton-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/inter-500-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/inter-600-normal.woff2") format("woff2"); }
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/inter-700-normal.woff2") format("woff2"); }
+
+    :root {
+      --bg: #eef1f5;
+      --panel: rgba(255, 255, 255, 0.92);
+      --line: #e2e8f0;
+      --red: #2563eb;
+      --red-soft: #3b82f6;
+      --ink: #1e293b;
+      --dim: #64748b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body { background: var(--bg); color: var(--ink); font-family: "Inter", system-ui, sans-serif; }
+    #stage { position: fixed; inset: 0; display: block; touch-action: none; }
+    .grain {
+      position: fixed; inset: 0; pointer-events: none; z-index: 5;
+      opacity: .3; mix-blend-mode: multiply;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E");
+    }
+
+    /* ---------- top HUD ---------- */
+    .hud-top {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 18px 22px; pointer-events: none;
+    }
+    .hud-top > * { pointer-events: auto; }
+    .brand { text-decoration: none; color: var(--ink); display: flex; gap: 12px; align-items: center; }
+    .brand-mark {
+      width: 42px; height: 42px; border-radius: 10px;
+      background: linear-gradient(150deg, var(--red), #1e3a8a);
+      display: grid; place-items: center;
+      font-family: "Anton", "Arial Narrow", sans-serif; font-size: 18px; letter-spacing: .5px;
+      box-shadow: 0 2px 10px rgba(37, 99, 235, .3);
+    }
+    .brand-text { font-family: "Anton", "Arial Narrow", sans-serif; letter-spacing: 1.5px; font-size: 17px; line-height: 1.25; }
+    .brand-text small {
+      display: block; font-family: "Inter", sans-serif; font-size: 9.5px;
+      letter-spacing: 2.5px; color: var(--dim); font-weight: 500;
+    }
+    .menu-wrap { position: relative; }
+    .menu-btn {
+      appearance: none; border: 1px solid var(--line); background: var(--panel);
+      color: var(--ink); font: 600 11px/1 "Inter", sans-serif; letter-spacing: 1.6px;
+      padding: 11px 16px; border-radius: 12px; cursor: pointer; text-transform: uppercase;
+      backdrop-filter: blur(8px); box-shadow: 0 2px 10px rgba(15, 23, 42, .06);
+      transition: all .15s ease;
+    }
+    .menu-btn:hover, .menu-btn.active { background: var(--red); color: #fff; border-color: var(--red); }
+    .menu-panel {
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 15;
+      width: 250px; display: none; flex-direction: column;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 7px; backdrop-filter: blur(12px); overflow: auto;
+      max-height: calc(100vh - 130px);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, .14);
+    }
+    .menu-panel.open { display: flex; }
+    .mi {
+      appearance: none; border: 0; background: transparent; text-decoration: none;
+      color: var(--ink); font: 500 11.5px/1.35 "Inter", sans-serif;
+      padding: 10px 12px; border-radius: 9px; cursor: pointer; text-align: left;
+      display: flex; align-items: center; gap: 9px; width: 100%;
+      letter-spacing: .3px; transition: background .12s;
+    }
+    .mi:hover { background: rgba(37, 99, 235, .1); }
+    .mi-badge { background: var(--red); color: #fff; border-radius: 6px; padding: 3px 7px; font-size: 9.5px; letter-spacing: 1px; font-weight: 600; flex-shrink: 0; }
+    .mi-row { justify-content: space-between; }
+    .mi-row input { accent-color: var(--red); }
+    .mi-sep { height: 1px; background: var(--line); margin: 5px 8px; flex-shrink: 0; }
+    .mi-keys { padding: 8px 12px 6px; font-size: 10px; letter-spacing: .8px; color: var(--dim); line-height: 2; text-transform: uppercase; }
+    .mi-keys b { color: var(--red-soft); font-weight: 600; }
+    .mi.back { color: var(--red-soft); font-weight: 600; letter-spacing: .8px; }
+
+    /* ---------- picker (emoji / objects) ---------- */
+    #picker {
+      position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%);
+      z-index: 9; display: none; align-items: center; gap: 6px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+      padding: 7px 10px; backdrop-filter: blur(10px);
+      box-shadow: 0 6px 22px rgba(15, 23, 42, .10);
+      max-width: min(94vw, 760px); overflow-x: auto;
+    }
+    #picker.show { display: flex; }
+    .pick {
+      border: 2px solid transparent; background: transparent; border-radius: 10px;
+      font-size: 26px; line-height: 1; padding: 6px 8px; cursor: pointer;
+      transition: transform .12s ease, border-color .12s; appearance: none;
+      font-family: "Inter", sans-serif; color: var(--dim); white-space: nowrap;
+    }
+    .pick-img { width: 34px; height: 34px; display: block; pointer-events: none; }
+    .tbtn img { width: 15px; height: 15px; vertical-align: -2px; }
+    .pick:hover { transform: scale(1.15); background: rgba(37, 99, 235, .08); }
+    .pick.active { border-color: var(--red); }
+    .pick small { display: block; font-size: 8.5px; letter-spacing: 1px; margin-top: 2px; text-align: center; }
+
+    /* ---------- bottom toolbar ---------- */
+    .toolbar {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      z-index: 10; display: flex; align-items: center; gap: 7px;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 16px; padding: 9px 11px; backdrop-filter: blur(10px);
+      box-shadow: 0 8px 28px rgba(15, 23, 42, .12);
+      max-width: min(97vw, 1120px); flex-wrap: wrap; justify-content: center;
+    }
+    .tools { display: flex; gap: 5px; }
+    .tbtn {
+      appearance: none; border: 1px solid transparent; background: transparent;
+      color: var(--dim); font: 600 11px/1 "Inter", sans-serif; letter-spacing: 1.2px;
+      padding: 9px 11px; border-radius: 10px; cursor: pointer;
+      text-transform: uppercase; transition: all .15s ease; white-space: nowrap;
+    }
+    .tbtn:hover { color: var(--ink); background: rgba(37, 99, 235, .1); }
+    .tbtn.active { color: #fff; background: var(--red); box-shadow: 0 2px 10px rgba(37, 99, 235, .35); }
+    .tbtn:disabled { opacity: .35; cursor: default; }
+    .sep { width: 1px; height: 26px; background: var(--line); }
+
+    .swatches { display: flex; gap: 7px; align-items: center; }
+    .swatch {
+      width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
+      border: 2px solid rgba(15, 23, 42, .15); transition: transform .12s ease, border-color .12s;
+      padding: 0; appearance: none;
+    }
+    .swatch:hover { transform: scale(1.18); }
+    .swatch.active { border-color: var(--red); box-shadow: 0 1px 8px rgba(37, 99, 235, .4); }
+    input[type="color"] {
+      width: 26px; height: 26px; border-radius: 8px; border: 2px dashed rgba(15, 23, 42, .3);
+      background: transparent; cursor: pointer; padding: 0;
+    }
+
+    .ctl { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 1.4px; color: var(--dim); }
+    .ctl input[type="range"] { width: 84px; accent-color: var(--red); }
+    .ctl output { min-width: 26px; color: var(--ink); font-weight: 600; }
+    .tgl { font: 600 10px/1 "Inter", sans-serif; letter-spacing: 1.2px; color: var(--dim);
+      display: flex; align-items: center; gap: 5px; cursor: pointer; text-transform: uppercase; }
+    .tgl.on { color: var(--red); }
+    .tgl input { accent-color: var(--red); }
+
+    .mode-pill {
+      position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%); z-index: 9;
+      font-size: 10px; letter-spacing: 2.4px; color: var(--dim);
+      text-transform: uppercase; pointer-events: none; text-align: center;
+    }
+    .mode-pill b { color: var(--red-soft); font-weight: 700; }
+
+    /* ---------- right-side task bar (pens · colours · file) ---------- */
+    .rail {
+      position: fixed; right: 14px; top: 50%; transform: translateY(-50%);
+      z-index: 10; display: flex; flex-direction: column; gap: 7px; align-items: center;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+      padding: 12px 9px; backdrop-filter: blur(10px);
+      box-shadow: 0 8px 28px rgba(15, 23, 42, .12);
+      max-height: calc(100vh - 140px); overflow-y: auto;
+    }
+    .rail-head { font: 600 8.5px/1 "Inter", sans-serif; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; }
+    .rail-sep { width: 34px; height: 1px; background: var(--line); margin: 2px 0; }
+    .pens { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .pen-btn {
+      appearance: none; border: 1.5px solid var(--line); background: #fff; cursor: pointer;
+      border-radius: 9px; padding: 4px 0 2px; width: 34px; text-align: center;
+      font-size: 13px; line-height: 1.15; transition: all .12s ease; color: var(--ink);
+    }
+    .pen-btn small { display: block; font: 600 6.5px/1 "Inter", sans-serif; letter-spacing: .5px; color: var(--dim); margin-top: 1px; }
+    .pen-btn:hover { border-color: var(--red-soft); transform: translateY(-1px); }
+    .pen-btn.active { border-color: var(--red); background: rgba(37, 99, 235, .1); box-shadow: 0 1px 6px rgba(37, 99, 235, .25); }
+    .swatch-col {
+      display: grid; grid-template-columns: repeat(2, 25px); gap: 5px; justify-content: center;
+    }
+    .swatch { width: 25px; height: 25px; }
+    .rail input[type="color"] { width: 25px; height: 25px; }
+    .rail-file { display: flex; gap: 5px; }
+    .rail-btn {
+      appearance: none; border: 1px solid var(--line); background: #fff; cursor: pointer;
+      border-radius: 9px; padding: 6px 6px 3px; text-align: center; line-height: 1.1;
+      font-size: 14px; transition: all .12s ease; color: var(--ink);
+    }
+    .rail-btn small { display: block; font: 600 6.5px/1 "Inter", sans-serif; letter-spacing: .6px; color: var(--dim); margin-top: 2px; }
+    .rail-btn:hover { background: var(--red); color: #fff; border-color: var(--red); }
+    .rail-btn:hover small { color: #fff; }
+
+    /* ---------- case study panel ---------- */
+    /* ---------- case study slide-over (from menu) ---------- */
+    .case {
+      position: fixed; inset: 0; z-index: 18; display: none;
+      background: rgba(15, 23, 42, .25); backdrop-filter: blur(2px);
+    }
+    .case.open { display: block; }
+    .case-panel {
+      position: absolute; top: 0; right: 0; bottom: 0; width: min(400px, 100vw);
+      background: var(--bg); border-left: 1px solid var(--line);
+      padding: 20px 22px; overflow: auto; box-shadow: -12px 0 40px rgba(15, 23, 42, .2);
+    }
+    .case-close {
+      position: absolute; top: 14px; right: 16px; appearance: none; border: 1px solid var(--line);
+      background: #fff; color: var(--ink); width: 32px; height: 32px; border-radius: 9px;
+      cursor: pointer; font-size: 13px; font-weight: 600;
+    }
+    .case-close:hover { background: var(--red); color: #fff; border-color: var(--red); }
+    .case-panel h2 { font-family: "Anton", "Arial Narrow", sans-serif; letter-spacing: 1.6px; font-size: 18px; margin: 6px 0 10px; }
+    .study-card { display: block; background: transparent; border: 0; padding: 0; }
+    .study-card h3 { font-family: "Anton", "Arial Narrow", sans-serif; letter-spacing: 1.4px; font-size: 15px; margin-bottom: 4px; }
+    .study-card p { color: var(--dim); margin-bottom: 10px; font-size: 12px; line-height: 1.75; }
+    .study-card ul { list-style: none; margin-bottom: 10px; }
+    .study-card li { padding-left: 14px; position: relative; color: var(--ink); margin-bottom: 5px; font-size: 12px; line-height: 1.65; }
+    .study-card li::before { content: "▸"; position: absolute; left: 0; color: var(--red-soft); }
+    .study-card .src { color: var(--dim); font-size: 10.5px; border-top: 1px solid var(--line); padding-top: 8px; }
+    .study-card code {
+      font-family: ui-monospace, "Cascadia Code", monospace; font-size: .92em;
+      color: #1d4ed8; background: rgba(37,99,235,.08); padding: 1px 4px; border-radius: 4px;
+    }
+    .sig { font-family: "Inter", sans-serif; font-style: italic; font-size: 12.5px; color: var(--red-soft); }
+
+    /* ---------- one-time welcome / instructions ---------- */
+    .intro {
+      position: fixed; inset: 0; z-index: 19; display: none;
+      place-items: center; background: rgba(15, 23, 42, .35); backdrop-filter: blur(3px);
+    }
+    .intro.show { display: grid; }
+    .intro-card {
+      width: min(430px, calc(100vw - 40px)); background: var(--bg);
+      border: 1px solid var(--line); border-radius: 18px; padding: 26px 28px;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, .3); text-align: left;
+    }
+    .intro-card h3 { font-family: "Anton", "Arial Narrow", sans-serif; letter-spacing: 2px; font-size: 19px; margin-bottom: 4px; }
+    .intro-card small { display: block; font-size: 10px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; margin-bottom: 14px; }
+    .intro-card ul { list-style: none; margin-bottom: 16px; }
+    .intro-card li {
+      padding-left: 22px; position: relative; margin-bottom: 8px;
+      font-size: 12.5px; line-height: 1.6; color: var(--ink);
+    }
+    .intro-card li::before {
+      content: attr(data-ico); position: absolute; left: 0; top: 1px; font-size: 12px;
+    }
+    .intro-card li b { color: var(--red-soft); }
+    .intro-card li kbd {
+      font-family: ui-monospace, monospace; font-size: .85em; background: #fff;
+      border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 5px; border-radius: 5px; color: var(--ink);
+    }
+    .intro-ok {
+      appearance: none; border: 0; background: var(--red); color: #fff; width: 100%;
+      font: 600 12px/1 "Inter", sans-serif; letter-spacing: 1.8px; text-transform: uppercase;
+      padding: 13px; border-radius: 11px; cursor: pointer; box-shadow: 0 4px 16px rgba(37, 99, 235, .35);
+    }
+    .intro-ok:hover { background: var(--red-soft); }
+    .intro-note { text-align: center; margin-top: 10px; font-size: 9.5px; letter-spacing: 1.6px; color: var(--dim); text-transform: uppercase; }
+
+    /* ---------- selection action bar ---------- */
+    #selbar {
+      position: fixed; top: 74px; left: 50%; transform: translateX(-50%);
+      z-index: 10; display: none; align-items: center; gap: 6px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 13px;
+      padding: 7px 10px; backdrop-filter: blur(10px);
+      box-shadow: 0 6px 22px rgba(15, 23, 42, .10);
+    }
+    #selbar.show { display: flex; }
+    #selbar .sel-label { font: 600 10px/1 "Inter", sans-serif; letter-spacing: 1.4px; color: var(--dim); text-transform: uppercase; padding: 0 6px; white-space: nowrap; }
+    .sbtn {
+      appearance: none; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      font: 600 12px/1 "Inter", sans-serif; padding: 8px 10px; border-radius: 9px; cursor: pointer;
+      transition: all .12s; white-space: nowrap;
+    }
+    .sbtn:hover { background: var(--red); color: #fff; border-color: var(--red); }
+    .sbtn.danger:hover { background: #e8323f; border-color: #e8323f; }
+
+    #boot {
+      position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+      background: var(--bg); transition: opacity .5s ease;
+      font-family: "Anton", "Arial Narrow", sans-serif; letter-spacing: 3px; color: var(--dim); text-align: center;
+    }
+    #boot.gone { opacity: 0; pointer-events: none; }
+    #boot .spin { color: var(--red-soft); }
+
+    ::-webkit-scrollbar { width: 10px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    @media (max-width: 760px) {
+      .mi-keys { display: none; }
+      .ctl.ctl-depth { display: none; }
+      #selbar { top: auto; bottom: 118px; }
+      #picker { bottom: 118px; }
+      .rail { right: 6px; padding: 9px 7px; max-height: calc(100vh - 170px); }
+      .toolbar { max-width: calc(100vw - 60px); }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div class="grain" aria-hidden="true"></div>
+  <div id="boot"><span>ENTERING <span class="spin">■</span> SPACE<br /><small style="font-family:Inter;font-size:10px;letter-spacing:2px">LOADING CHROMA 3D PAINT STUDIO…</small></span></div>
+
+  <div class="hud-top">
+    <a class="brand" href="#" title="Back to portfolio">
+      <span class="brand-mark">C3</span>
+      <span class="brand-text">CHROMA 3D<small>PAINT IN SPACE · EMOJI · OBJECTS · v2</small></span>
+    </a>
+    <div class="menu-wrap">
+      <button class="menu-btn" id="menuBtn">☰ MENU</button>
+      <nav class="menu-panel" id="menuPanel">
+        <button class="mi" id="miCase"><span class="mi-badge">REA</span> Case study · how this was made</button>
+        <span class="mi-sep"></span>
+        <button class="mi" id="miCam">⟲ Reset camera</button>
+        <label class="mi mi-row"><span>Transparent PNG export</span><input type="checkbox" id="bgCheckMenu" /></label>
+        <button class="mi" id="miSave">⬇ Export PNG</button>
+        <button class="mi" id="miSaveJson">💾 Save artwork (.chroma)</button>
+        <button class="mi" id="miOpen">📂 Open artwork…</button>
+        <span class="mi-sep"></span>
+        <div class="mi-keys">
+          <b>B</b> brush · <b>G</b> emoji · <b>O</b> objects · <b>E</b> erase ·
+          <b>Ctrl+Z</b> undo · <b>1–8</b> colours
+        </div>
+        <a class="mi back" href="#">← back to portfolio</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="mode-pill">mode <b id="modeLabel">DRAW</b> · <span id="strokesLabel">0 items in space</span></div>
+
+  <div id="picker"></div>
+
+  <div class="toolbar">
+    <div class="tools">
+      <button class="tbtn active" id="toolDraw">✏ Draw</button>
+      <button class="tbtn" id="toolEmoji"><img src="emoji/1f60e.svg" alt=""> Emoji</button>
+      <button class="tbtn" id="toolObjects">▣ Objects</button>
+      <button class="tbtn" id="toolSelect">⬚ Select</button>
+      <button class="tbtn" id="toolErase">⌫ Erase</button>
+      <span class="sep"></span>
+      <button class="tbtn" id="undo" title="Ctrl+Z">↩ Undo</button>
+      <button class="tbtn" id="clear">✕ Clear</button>
+      <button class="tbtn" id="resetCam">⟲ Camera</button>
+    </div>
+    <span class="sep"></span>
+    <div class="ctl"><span>SIZE</span><input type="range" id="size" min="0.05" max="0.6" step="0.01" value="0.16" /><output id="sizeOut">0.16</output></div>
+    <div class="ctl ctl-depth"><span>DEPTH</span><input type="range" id="depth" min="3" max="14" step="0.25" value="7" /><output id="depthOut">7.0</output></div>
+    <span class="sep"></span>
+    <label class="tgl" id="bgToggle" title="Export PNG with transparent background"><input type="checkbox" id="bgCheck" />TRANSPARENT</label>
+    <button class="tbtn" id="savePng">⬇ PNG</button>
+    <input type="file" id="fileInput" accept=".chroma,.json" style="display:none" />
+  </div>
+
+  <!-- right-side task bar: pens · colours · file -->
+  <aside class="rail" id="rail">
+    <div class="rail-head">PENS</div>
+    <div class="pens" id="penBtns"></div>
+    <div class="rail-sep"></div>
+    <div class="rail-head">COLOURS</div>
+    <div id="swatches" class="swatch-col"></div>
+    <input type="color" id="customColor" value="#2563eb" title="Custom colour" />
+    <div class="rail-sep"></div>
+    <div class="rail-head">FILE</div>
+    <div class="rail-file">
+      <button class="rail-btn" id="saveJson" title="Save artwork file">💾<small>SAVE</small></button>
+      <button class="rail-btn" id="loadJson" title="Open artwork file">📂<small>OPEN</small></button>
+    </div>
+  </aside>
+
+  <div class="case" id="caseOverlay">
+    <div class="case-panel">
+      <button class="case-close" id="caseClose" title="Close">✕</button>
+      <h2>HOW THIS WAS MADE</h2>
+      <div class="study-card">
+      <h3>CHROMA 3D, MADE "OURS"</h3>
+      <p>Before building this, we reverse-engineered the real Microsoft Paint 3D with
+         REA (a reverse-engineering toolkit driven through OpenCode) and rebuilt its core
+         spirit for the browser.</p>
+      <ul>
+        <li><b>Target:</b> <code>PaintStudio.View.exe</code> — Paint 3D's renderer, v6.1907.29027.0, 3.3&nbsp;MB x64 PE</li>
+        <li><code>9,738</code> procedures recovered · <code>3,001</code> strings · Ghidra 12.1.4 analysis engine</li>
+        <li>Discovered it's a <b>.NET Native compiled UWP app</b> — an extra <code>tdb</code> metadata segment at <code>0xff00000000</code> gave it away</li>
+        <li>Class map read straight from the compiled metadata: <code>ToolBase</code>, <code>SceneTool</code>, <code>TextTool</code>, <code>MenuGroup</code>, <code>OutputCentre3D</code>, <code>MixedRealityMainPage</code></li>
+        <li>Its 3D pipeline talks to <b>Direct3D</b>; the build even ships Holographic hooks (<code>HolographicApplicationPreview</code>)</li>
+        <li>Our take swaps D3D for <b>Three.js / WebGL</b>: strokes become tubes along Catmull-Rom curves; emoji stickers ride billboard sprites; objects are parameterised primitives — the "stickers &amp; 3D objects" idea from the original, made ours</li>
+        <li><b>v2:</b> category tabs, emoji &amp; object placement, unified undo across everything, transparent-PNG export, artwork save/open (<code>.chroma</code> files), keyboard shortcuts, touch pinch</li>
+      </ul>
+      <p class="src">Evidence: REA evidence records (sha256 <code>d7ae0734…45f3339f</code> of the original binary); analysis snapshot retained. No Microsoft assets used — everything here is ours. <span class="sig">— made ours ✦</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="intro" id="intro">
+    <div class="intro-card">
+      <h3>WELCOME TO CHROMA 3D</h3>
+      <small>Paint in space · quick guide</small>
+      <ul>
+        <li data-ico="✏"><b>Draw</b> with the left mouse on any depth. Orbit with <b>right-drag</b>, zoom with the <b>wheel</b>.</li>
+        <li data-ico="😀"><b>Emoji</b> and <b>Objects</b>: pick one in the strip, then click empty space to place it.</li>
+        <li data-ico="⬚"><b>Select</b> anything — drag to <b>move</b>, drag the <b>rings</b> to rotate, the <b>ball</b> to resize.</li>
+        <li data-ico="⌫"><b>Erase</b> strokes, emoji, objects — anything you painted.</li>
+        <li data-ico="⌨"><b>Ctrl+Z</b> undo · <kbd>B</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>S</kbd> <kbd>E</kbd> tools · <kbd>1–8</kbd> colours · <kbd>←</kbd>/<kbd>→</kbd> rotate selected.</li>
+      </ul>
+      <button class="intro-ok" id="introOk">Got it — start painting ✦</button>
+      <p class="intro-note">One-time guide · everything is in the ☰ MENU</p>
+    </div>
+  </div>
+
+  <div id="selbar">
+    <span class="sel-label" id="selLabel">selected</span>
+    <button class="sbtn" id="selRollL" title="Rotate left (Q)">⟲</button>
+    <button class="sbtn" id="selRollR" title="Rotate right (R)">⟳</button>
+    <button class="sbtn" id="selScaleDown" title="Smaller">−</button>
+    <button class="sbtn" id="selScaleUp" title="Bigger">+</button>
+    <button class="sbtn danger" id="selDelete" title="Remove (Delete)">🗑</button>
+    <button class="sbtn" id="selDone" title="Deselect (Esc)">✕</button>
+  </div>
+
+  <script src="three.min.js"></script>
+  <script>
+  "use strict";
+
+  /* ============================================================
+     CHROMA 3D v2 — "Paint 3D, made ours"
+     Categories: BRUSH strokes · EMOJI stickers · 3D OBJECTS · ERASE
+     Strokes = tubes along Catmull-Rom curves on a camera-space plane.
+     Emoji = billboard sprites. Objects = parametric primitives.
+     Unified undo; PNG (optionally transparent); .chroma save/open.
+     ============================================================ */
+
+  const canvas = document.getElementById("stage");
+  const boot = document.getElementById("boot");
+  const modeLabel = document.getElementById("modeLabel");
+  const strokesLabel = document.getElementById("strokesLabel");
+  const picker = document.getElementById("picker");
+
+  /* ---------- renderer / scene / camera ---------- */
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearColor(0xeef1f5, 1);
+
+  const scene = new THREE.Scene();
+  const fog = new THREE.Fog(0xeef1f5, 22, 60);
+  scene.fog = fog;
+  const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
+
+  /* ---------- lights: bright professional studio look ---------- */
+  scene.add(new THREE.AmbientLight(0xffffff, 1.15));
+  const key = new THREE.DirectionalLight(0xffffff, 0.95); key.position.set(6, 10, 6); scene.add(key);
+  const rim = new THREE.PointLight(0x9db8ff, 0.8, 40); rim.position.set(-8, -4, -6); scene.add(rim);
+
+  /* ---------- orbit camera (custom, spherical) ---------- */
+  const ORBIT_HOME = { theta: Math.PI * 0.72, phi: Math.PI * 0.46, radius: 14 };
+  const orbit = Object.assign({}, ORBIT_HOME);
+  const target = new THREE.Vector3(0, 0, 0);
+  function applyCamera() {
+    orbit.phi = Math.max(0.12, Math.min(Math.PI - 0.12, orbit.phi));
+    orbit.radius = Math.max(4, Math.min(34, orbit.radius));
+    camera.position.set(
+      target.x + orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+      target.y + orbit.radius * Math.cos(orbit.phi),
+      target.z + orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta)
+    );
+    camera.lookAt(target);
+    // keep camera-facing gizmo rings glued to the view (Paint-3D crank feel)
+    if (sel && selGizmo.visible) {
+      for (const c of selGizmo.children) {
+        if (c.userData.op === "pitch" || c.userData.op === "roll") c.quaternion.copy(camera.quaternion);
+      }
+    }
+  }
+  applyCamera();
+
+  /* ---------- subtle world helpers ---------- */
+  const grid = new THREE.GridHelper(24, 24, 0xb9c4d0, 0xd7dfe8);
+  grid.position.y = -4.2; scene.add(grid);
+  const axes = new THREE.AxesHelper(2.2); axes.position.y = -4.1; scene.add(axes);
+
+  /* ---------- state ---------- */
+  const strokes = [];      // {mesh, points, color, size}
+  const items = [];        // stickers + objects {mesh, kind:'emoji'|'object', data}
+  const undoStack = [];    // {kind:'stroke'|'item', ref}
+  const UNDO_MAX = 60;
+  let mode = "draw";       // draw | emoji | objects | erase
+  let color = "#2563eb";
+  let brushSize = 0.16;
+  let planeDepth = 7;
+  let currentEmoji = "😀";
+  let currentObject = "box";
+  let drawing = false;
+  let currentPoints = null;
+  let currentStroke = null;
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const drawPlane = new THREE.Plane();
+  const planeNormal = new THREE.Vector3();
+  const hitPoint = new THREE.Vector3();
+
+  /* ---------- pens (right rail) ---------- */
+  const PENS = {
+    marker: { ico: "✒", label: "MARK", radius: 1.0, roughness: 0.55, metalness: 0.15, emissive: 0.22 },
+    pencil: { ico: "🖊", label: "PENC", radius: 0.55, roughness: 0.9, metalness: 0.05, emissive: 0.05 },
+    neon:   { ico: "✨", label: "NEON", radius: 0.75, roughness: 0.35, metalness: 0.1, emissive: 1.6 },
+    chalk:  { ico: "🖍", label: "CHLK", radius: 1.5, roughness: 1.0, metalness: 0.0, emissive: 0.0 },
+    metal:  { ico: "⚙", label: "METL", radius: 1.0, roughness: 0.15, metalness: 0.95, emissive: 0.12 },
+  };
+  let currentPen = "marker";
+
+  /* ---------- material helper ---------- */
+  function makeMaterial(hexColor, pen) {
+    const P = PENS[pen || "marker"] || PENS.marker;
+    const c = new THREE.Color(hexColor);
+    return new THREE.MeshStandardMaterial({
+      color: c, roughness: P.roughness, metalness: P.metalness,
+      emissive: c, emissiveIntensity: P.emissive,
+    });
+  }
+
+  /* ---------- geometry builders for OBJECTS ---------- */
+  function starShape(spikes = 5, outer = 1, inner = 0.45) {
+    const shape = new THREE.Shape();
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(a) * r, y = Math.sin(a) * r;
+      i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y);
+    }
+    shape.closePath();
+    return shape;
+  }
+  function heartShape() {
+    // classic three.js heart curve, re-centred + scaled to ~2 units
+    const pts = [];
+    for (let i = 0; i < 24; i++) {
+      const t = (i / 24) * Math.PI * 2;
+      const x = 16 * Math.pow(Math.sin(t), 3);
+      const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+      pts.push([x / 10, y / 10]);
+    }
+    const s = new THREE.Shape();
+    s.moveTo(pts[0][0], pts[0][1]);
+    for (const p of pts.slice(1)) s.lineTo(p[0], p[1]);
+    s.closePath();
+    return s;
+  }
+  const OBJECT_BUILDERS = {
+    box:     () => new THREE.BoxGeometry(1, 1, 1),
+    sphere:  () => new THREE.SphereGeometry(0.6, 28, 20),
+    cone:    () => new THREE.ConeGeometry(0.55, 1.2, 26),
+    cylinder:() => new THREE.CylinderGeometry(0.5, 0.5, 1, 26),
+    torus:   () => new THREE.TorusGeometry(0.5, 0.2, 18, 34),
+    knot:    () => new THREE.TorusKnotGeometry(0.42, 0.14, 90, 12),
+    star:    () => new THREE.ExtrudeGeometry(starShape(), { depth: 0.28, bevelEnabled: false }),
+    heart:   () => { const g = new THREE.ExtrudeGeometry(heartShape(), { depth: 0.3, bevelEnabled: false }); g.center(); return g; },
+  };
+
+  /* ---------- emoji sprite factory ----------
+     SVG vector assets (Twemoji 15.1.0, CC-BY 4.0) — rendering is fully
+     font-independent and works offline / inside embedded WebView2. */
+  const EMOJI_ASSETS = {
+    "😀": "emoji/1f600.svg", "😎": "emoji/1f60e.svg", "❤": "emoji/2764.svg",
+    "⭐": "emoji/2b50.svg", "🔥": "emoji/1f525.svg", "🌈": "emoji/1f308.svg",
+    "🐱": "emoji/1f431.svg", "🐶": "emoji/1f436.svg", "🦄": "emoji/1f984.svg",
+    "🍕": "emoji/1f355.svg", "🚀": "emoji/1f680.svg", "⚽": "emoji/26bd.svg",
+    "🎵": "emoji/1f3b5.svg", "💡": "emoji/1f4a1.svg", "🌸": "emoji/1f338.svg",
+    "👑": "emoji/1f451.svg",
+  };
+  const normEmoji = (e) => e.replace(/\uFE0F/g, ""); // strip VS16 → matches asset filenames
+
+  const spriteCache = new Map();
+  function drawEmojiFallback(ctx, emoji) {
+    ctx.clearRect(0, 0, 256, 256);
+    ctx.font = "190px 'Segoe UI Emoji','Noto Color Emoji',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(emoji, 128, 138);
+  }
+  function emojiTexture(emoji) {
+    emoji = normEmoji(emoji);
+    if (spriteCache.has(emoji)) return spriteCache.get(emoji);
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const ctx = c.getContext("2d");
+    drawEmojiFallback(ctx, emoji); // instant placeholder on font-capable systems
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    spriteCache.set(emoji, tex);
+    const src = EMOJI_ASSETS[emoji];
+    if (src) {
+      const img = new Image();
+      img.onload = () => {           // crisp vector art overwrites the fallback,
+        ctx.clearRect(0, 0, 256, 256);
+        ctx.drawImage(img, 0, 0, 256, 256);
+        tex.needsUpdate = true;      // repaints every already-placed sprite too
+      };
+      img.onerror = () => { drawEmojiFallback(ctx, emoji); tex.needsUpdate = true; };
+      img.src = src;
+    }
+    return tex;
+  }
+
+  /* ---------- counts ---------- */
+  function updateCounts() {
+    const n = strokes.length + items.length;
+    strokesLabel.textContent = n + (n === 1 ? " item in space" : " items in space");
+  }
+
+  /* ---------- stroke creation ---------- */
+  function rebuildCurrentStroke() {
+    if (!currentPoints || currentPoints.length < 2) return;
+    const curve = new THREE.CatmullRomCurve3(currentPoints);
+    const geo = new THREE.TubeGeometry(curve, currentPoints.length * 2, brushSize * PENS[currentPen].radius, 7, false);
+    if (currentStroke) {
+      currentStroke.mesh.geometry.dispose();
+      currentStroke.mesh.geometry = geo;
+    } else {
+      currentStroke = { mesh: new THREE.Mesh(geo, makeMaterial(color, currentPen)), points: currentPoints, color, size: brushSize * PENS[currentPen].radius, pen: currentPen };
+      scene.add(currentStroke.mesh);
+      strokes.push(currentStroke);
+    }
+    updateCounts();
+  }
+
+  /* ---------- draw plane in front of the camera ---------- */
+  function planePointFromPointer(clientX, clientY, out) {
+    pointer.x = (clientX / innerWidth) * 2 - 1;
+    pointer.y = -(clientY / innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    planeNormal.copy(camera.getWorldDirection(new THREE.Vector3()));
+    drawPlane.setFromNormalAndCoplanarPoint(planeNormal, camera.position.clone().add(planeNormal.clone().multiplyScalar(planeDepth)));
+    return raycaster.ray.intersectPlane(drawPlane, out);
+  }
+
+  /* ---------- placing emoji & objects ---------- */
+  function placeItem(kind, clientX, clientY) {
+    if (!planePointFromPointer(clientX, clientY, hitPoint)) return;
+    let mesh, data;
+    if (kind === "emoji") {
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture(currentEmoji), transparent: true }));
+      const s = Math.max(0.7, brushSize * 5.5);
+      spr.scale.set(s, s, s);
+      spr.position.copy(hitPoint);
+      mesh = spr; data = { emoji: currentEmoji, scale: s };
+    } else {
+      const geo = OBJECT_BUILDERS[currentObject]();
+      mesh = new THREE.Mesh(geo, makeMaterial(color));
+      const s = Math.max(0.35, brushSize * 2.4);
+      mesh.scale.setScalar(s);
+      if (currentObject === "star" || currentObject === "heart") mesh.position.set(hitPoint.x, hitPoint.y, hitPoint.z); // extrude z-centred-ish
+      else mesh.position.copy(hitPoint);
+      mesh.quaternion.copy(camera.quaternion); // face the camera when placed
+      mesh.rotation.z = Math.random() * Math.PI * 0.2 - Math.PI * 0.1;
+      data = { object: currentObject, scale: s };
+    }
+    scene.add(mesh);
+    const entry = { mesh, kind, data };
+    items.push(entry);
+    undoStack.push({ kind: "item", ref: entry });
+    trimUndo();
+    updateCounts();
+  }
+
+  /* ---------- undo ---------- */
+  function purgeUndoFor(ref) {
+    for (let i = undoStack.length - 1; i >= 0; i--) {
+      if (undoStack[i].ref === ref && undoStack[i].kind !== "stroke" && undoStack[i].kind !== "item") undoStack.splice(i, 1);
+    }
+  }
+  function doRemove(ref) {
+    if (sel && sel.ref === ref) clearSelection();
+    purgeUndoFor(ref);        // transform entries referencing it are gone too
+  }
+  function removeStrokeRef(stroke) {
+    doRemove(stroke);
+    const i = strokes.indexOf(stroke); if (i >= 0) strokes.splice(i, 1);
+    scene.remove(stroke.mesh);
+    stroke.mesh.geometry.dispose(); stroke.mesh.material.dispose();
+  }
+  function removeItemRef(item) {
+    doRemove(item);
+    const i = items.indexOf(item); if (i >= 0) items.splice(i, 1);
+    scene.remove(item.mesh);
+    if (item.mesh.geometry) item.mesh.geometry.dispose();
+    if (item.mesh.material) item.mesh.material.dispose();
+  }
+  function trimUndo() { while (undoStack.length > UNDO_MAX) undoStack.shift(); }
+  function doUndo() {
+    const u = undoStack.pop();
+    if (!u) return;
+    if (u.kind === "transform") applyTransform(u.type, u.ref, u.before);
+    else if (u.kind === "stroke") removeStrokeRef(u.ref);
+    else removeItemRef(u.ref);
+    updateCounts();
+  }
+
+  /* ---------- pointer controls ---------- */
+  let orbiting = false;
+  let lastOrbitX = 0, lastOrbitY = 0;
+  let lastPinchDist = 0;
+  let touchMode = null;
+  const activeTouches = new Map();
+
+  function startStrokeIfPossible(x, y) {
+    currentPoints = [];
+    currentStroke = null;
+    if (planePointFromPointer(x, y, hitPoint)) {
+      currentPoints.push(hitPoint.clone());
+      drawing = true;
+    }
+  }
+
+  canvas.addEventListener("pointerdown", (e) => {
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic/stale pointer id */ }
+    activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activeTouches.size === 2) {
+      drawing = false;
+      endStroke(true);
+      orbiting = true;
+      const [a, b] = [...activeTouches.values()];
+      lastOrbitX = (a.x + b.x) / 2; lastOrbitY = (a.y + b.y) / 2;
+      touchMode = "orbit";
+      return;
+    }
+
+    if (e.pointerType === "touch") {
+      touchMode = "place";
+      if (mode === "draw") startStrokeIfPossible(e.clientX, e.clientY);
+      else if (mode === "emoji" || mode === "objects") placeItem(mode, e.clientX, e.clientY);
+      else if (mode === "select") { touchMode = "sel"; selectDown(e); }
+      else eraseAt(e.clientX, e.clientY);
+      return;
+    }
+
+    if (mode === "select" && e.button === 0 && !e.shiftKey) {
+      selectDown(e);
+      return;
+    }
+
+    if (e.button === 2 || e.shiftKey) {
+      orbiting = true;
+      lastOrbitX = e.clientX; lastOrbitY = e.clientY;
+    } else if (e.button === 0) {
+      if (mode === "draw") startStrokeIfPossible(e.clientX, e.clientY);
+      else if (mode === "emoji" || mode === "objects") placeItem(mode, e.clientX, e.clientY);
+      else eraseAt(e.clientX, e.clientY);
+    }
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    const prev = activeTouches.get(e.pointerId);
+    if (prev) activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activeTouches.size === 2 && orbiting) {
+      const [a, b] = [...activeTouches.values()];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      orbit.theta -= (mx - lastOrbitX) * 0.008;
+      orbit.phi -= (my - lastOrbitY) * 0.008;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (lastPinchDist > 0) orbit.radius += (lastPinchDist - dist) * 0.04;
+      lastPinchDist = dist;
+      lastOrbitX = mx; lastOrbitY = my;
+      applyCamera();
+      return;
+    }
+
+    if (mode === "select" && selDrag) {
+      selDragMove(e, e.buttons !== 0 || (e.pointerType === "touch" && touchMode === "sel"));
+      return;
+    }
+
+    if (orbiting && (e.pointerType !== "touch" || touchMode === "orbit")) {
+      orbit.theta -= (e.clientX - lastOrbitX) * 0.008;
+      orbit.phi -= (e.clientY - lastOrbitY) * 0.008;
+      lastOrbitX = e.clientX; lastOrbitY = e.clientY;
+      applyCamera();
+      return;
+    }
+
+    if (drawing && mode === "draw") {
+      if (!planePointFromPointer(e.clientX, e.clientY, hitPoint)) return;
+      const last = currentPoints[currentPoints.length - 1];
+      if (last && last.distanceTo(hitPoint) < 0.045) return; // downsample
+      if (currentPoints.length >= 600) return; // keep rebuilds cheap
+      currentPoints.push(hitPoint.clone());
+      rebuildCurrentStroke();
+    } else if (mode === "erase" && (e.buttons & 1 || (e.pointerType === "touch" && touchMode === "place"))) {
+      eraseAt(e.clientX, e.clientY);
+    }
+  });
+
+  function finishPointer(e) {
+    activeTouches.delete(e.pointerId);
+    if (activeTouches.size < 2) { lastPinchDist = 0; touchMode = null; }
+    if (activeTouches.size === 0 || e.pointerType !== "touch") orbiting = false;
+    selectUp();
+    endStroke(false);
+  }
+  canvas.addEventListener("pointerup", finishPointer);
+  canvas.addEventListener("pointercancel", finishPointer);
+  canvas.addEventListener("pointerleave", (e) => { if (e.pointerType === "touch") finishPointer(e); });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  window.addEventListener("wheel", (e) => {
+    if (e.target !== canvas && e.target !== document.body) return;
+    orbit.radius += e.deltaY * 0.01;
+    applyCamera();
+  }, { passive: true });
+
+  function endStroke(aborted) {
+    drawing = false;
+    if (currentStroke) {
+      if (aborted || (currentPoints && currentPoints.length < 2)) {
+        removeStrokeRef(currentStroke);
+      } else {
+        undoStack.push({ kind: "stroke", ref: currentStroke });
+        trimUndo();
+      }
+    }
+    currentStroke = null;
+    currentPoints = null;
+    updateCounts();
+  }
+
+  /* ---------- erase (strokes, emoji, objects — everything) ---------- */
+  function eraseAt(x, y) {
+    pointer.x = (x / innerWidth) * 2 - 1;
+    pointer.y = -(y / innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const candidates = strokes.map((s) => s.mesh).concat(items.map((i) => i.mesh));
+    const hits = raycaster.intersectObjects(candidates);
+    if (hits.length) {
+      const mesh = hits[0].object;
+      const st = strokes.find((s) => s.mesh === mesh);
+      const it = items.find((i) => i.mesh === mesh);
+      if (st) removeStrokeRef(st);
+      else if (it) removeItemRef(it);
+      updateCounts();
+    }
+  }
+
+  /* ============================================================
+     SELECTION & MANIPULATION — the Paint 3D "scene object" model.
+     Select any emoji / object / stroke, then:
+     · drag it anywhere in space (move)
+     · drag the BLUE ring  = rotate yaw (around world Y)
+     · drag the ORANGE ring = rotate pitch (around camera axis)
+     · drag the GREEN ball  = resize
+     (emoji stickers rotate in-plane, exactly like Paint 3D sticker spin)
+     ============================================================ */
+  const selbar = document.getElementById("selbar");
+  const selLabel = document.getElementById("selLabel");
+  const selGizmo = new THREE.Group();
+  selGizmo.visible = false;
+  scene.add(selGizmo);
+  var sel = null;        // {type:'item'|'stroke', ref}  (var: applyCamera may probe before init)
+  let selHelper = null;  // BoxHelper outline
+  let selDrag = null;    // active drag op snapshot
+
+  function setPointerFromClient(x, y) {
+    pointer.x = (x / innerWidth) * 2 - 1;
+    pointer.y = -(y / innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+  }
+  function selRadius() {
+    const box = new THREE.Box3().setFromObject(sel.ref.mesh);
+    const size = new THREE.Vector3(); box.getSize(size);
+    return Math.max(0.55, size.length() * 0.55);
+  }
+  function disposeSelGizmo() {
+    while (selGizmo.children.length) {
+      const c = selGizmo.children[0];
+      selGizmo.remove(c);
+      c.geometry.dispose(); c.material.dispose();
+    }
+    selGizmo.visible = false;
+  }
+  function ring(color, op) {
+    const r = selRadius();
+    const m = new THREE.Mesh(
+      new THREE.TorusGeometry(r, r * 0.055, 8, 64),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false })
+    );
+    m.renderOrder = 999;
+    m.userData.op = op;
+    return m;
+  }
+  function buildSelGizmo() {
+    disposeSelGizmo();
+    if (!sel) return;
+    const isSprite = sel.type === "item" && sel.ref.kind === "emoji";
+    if (isSprite || sel.type === "item") {
+      const cam = ring(0x2563eb, isSprite ? "roll" : "pitch");
+      cam.userData.op = isSprite ? "roll" : "pitch";
+      selGizmo.add(cam);
+    }
+    if (sel.type === "item" && sel.ref.kind === "object") {
+      const yaw = ring(isSprite ? 0 : 0xffb347, "yaw");
+      yaw.rotation.x = Math.PI / 2;   // lie flat → horizontal crank
+      selGizmo.add(yaw);
+    }
+    if (sel.type === "item") {
+      const r = selRadius();
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(r * 0.1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0x2f9e4f, depthTest: false })
+      );
+      ball.position.set(0, r, 0);
+      ball.renderOrder = 999;
+      ball.userData.op = "scale";
+      selGizmo.add(ball);
+    }
+    selGizmo.position.copy(sel.ref.mesh.position);
+    selGizmo.visible = true;
+  }
+  function selectEntry(type, ref) {
+    clearSelection();
+    sel = { type, ref };
+    selHelper = new THREE.BoxHelper(ref.mesh, 0x2563eb);
+    selHelper.material.depthTest = false;
+    scene.add(selHelper);
+    buildSelGizmo();
+    selLabel.textContent = type === "stroke" ? "stroke selected"
+      : (ref.kind === "emoji" ? "emoji selected" : "object selected");
+    selbar.classList.add("show");
+    canvas.style.cursor = "move";
+  }
+  function clearSelection() {
+    if (selHelper) {
+      scene.remove(selHelper);
+      selHelper.geometry.dispose(); selHelper.material.dispose();
+      selHelper = null;
+    }
+    disposeSelGizmo();
+    sel = null; selDrag = null;
+    selbar.classList.remove("show");
+    canvas.style.cursor = "";
+  }
+  /* undo for transforms: snapshot before the tweak, restore on Ctrl+Z */
+  function snapshotTransform(type, ref) {
+    const m = ref.mesh;
+    const before = { position: m.position.clone(), quaternion: m.quaternion.clone(), scale: m.scale.clone() };
+    if (type === "item" && ref.kind === "emoji") before.roll = m.material.rotation;
+    return before;
+  }
+  function applyTransform(type, ref, before) {
+    ref.mesh.position.copy(before.position);
+    ref.mesh.quaternion.copy(before.quaternion);
+    ref.mesh.scale.copy(before.scale);
+    if (before.roll !== undefined && ref.kind === "emoji") ref.mesh.material.rotation = before.roll;
+    if (sel && sel.ref === ref) { if (selHelper) selHelper.update(); }
+    buildSelGizmo();
+  }
+  function pushTransformUndo(before) {
+    undoStack.push({ kind: "transform", type: sel.type, ref: sel.ref, before });
+    trimUndo();
+  }
+  function selRotate(dir) {      // bar buttons / arrow keys — 15° steps
+    if (!sel || sel.type !== "item") return;
+    const before = snapshotTransform(sel.type, sel.ref);
+    const a = dir * Math.PI / 12;
+    if (sel.type === "item" && sel.ref.kind === "emoji") sel.ref.mesh.material.rotation += a;
+    else sel.ref.mesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), a);
+    if (selHelper) selHelper.update();
+    buildSelGizmo();
+    pushTransformUndo(before);
+  }
+  function selScaleBy(factor) {
+    if (!sel || sel.type !== "item") return;
+    const before = snapshotTransform(sel.type, sel.ref);
+    const s = Math.min(6, Math.max(0.15, sel.ref.mesh.scale.x * factor));
+    sel.ref.mesh.scale.setScalar(s);
+    if (sel.ref.kind === "emoji") { sel.ref.data.scale = s; if (selHelper) selHelper.update(); }
+    if (selHelper) selHelper.update();
+    buildSelGizmo();
+    pushTransformUndo(before);
+  }
+  function selectDown(e) {
+    setPointerFromClient(e.clientX, e.clientY);
+    // gizmo first
+    if (selGizmo.visible) {
+      const hits = raycaster.intersectObjects(selGizmo.children, false);
+      if (hits.length) {
+        const op = hits[0].object.userData.op;
+        selDrag = { op, before: snapshotTransform(sel.type, sel.ref), x: e.clientX, y: e.clientY };
+        return;
+      }
+    }
+    // then pick an entry
+    const targets = strokes.map((s) => s.mesh).concat(items.map((i) => i.mesh));
+    const hits = raycaster.intersectObjects(targets);
+    if (hits.length) {
+      const mesh = hits[0].object;
+      const st = strokes.find((s) => s.mesh === mesh);
+      const it = items.find((i) => i.mesh === mesh);
+      if (st) selectEntry("stroke", st);
+      else if (it) selectEntry("item", it);
+      // begin a move drag right away
+      const camDir = camera.getWorldDirection(new THREE.Vector3());
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, sel.ref.mesh.position.clone());
+      const hit0 = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(plane, hit0)) {
+        selDrag = { op: "move", before: snapshotTransform(sel.type, sel.ref), plane, hit0 };
+      }
+    } else {
+      clearSelection();
+    }
+  }
+  function selDragMove(e, buttonsHeld) {
+    if (selDrag.op === "move") {
+      setPointerFromClient(e.clientX, e.clientY);
+      const hit1 = new THREE.Vector3();
+      if (!raycaster.ray.intersectPlane(selDrag.plane, hit1)) return;
+      const delta = hit1.clone().sub(selDrag.hit0);
+      sel.ref.mesh.position.copy(selDrag.before.position).add(delta);
+      selGizmo.position.copy(sel.ref.mesh.position);
+      if (selHelper) selHelper.update();
+      return;
+    }
+    const dx = e.clientX - selDrag.x, dy = e.clientY - selDrag.y;
+    const m = sel.ref.mesh;
+    if (selDrag.op === "yaw" && buttonsHeld) {
+      m.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), dx * 0.012);
+    } else if (selDrag.op === "pitch" && buttonsHeld) {
+      const axis = camera.getWorldDirection(new THREE.Vector3()).cross(new THREE.Vector3(0, 1, 0)).normalize();
+      m.rotateOnWorldAxis(axis, dy * 0.012);
+    } else if (selDrag.op === "roll" && buttonsHeld) {
+      m.material.rotation += (dx + dy) * 0.008;   // spin billboard in-plane
+    } else if (selDrag.op === "scale" && buttonsHeld) {
+      const f = Math.min(6, Math.max(0.15, selDrag.before.scale.x * Math.exp(-dy * 0.008)));
+      m.scale.setScalar(f);
+      if (sel.ref.kind === "emoji") sel.ref.data.scale = f;
+      buildSelGizmo();
+    }
+    if (selHelper) selHelper.update();
+  }
+  function selectUp() {
+    if (!selDrag) return;
+    const before = selDrag.before;
+    selDrag = null;
+    if (before) pushTransformUndo(before);
+  }
+
+  /* ---------- category tabs ---------- */
+  const toolDraw = document.getElementById("toolDraw");
+  const toolEmoji = document.getElementById("toolEmoji");
+  const toolObjects = document.getElementById("toolObjects");
+  const toolSelect = document.getElementById("toolSelect");
+  const toolErase = document.getElementById("toolErase");
+  const tabBtns = { draw: toolDraw, emoji: toolEmoji, objects: toolObjects, select: toolSelect, erase: toolErase };
+
+  const EMOJIS = ["😀","😎","❤️","⭐","🔥","🌈","🐱","🐶","🦄","🍕","🚀","⚽","🎵","💡","🌸","👑"];
+  const OBJECTS = { box: "CUBE", sphere: "BALL", cone: "CONE", cylinder: "CYL", torus: "RING", knot: "KNOT", star: "STAR", heart: "HEART" };
+
+  let pickChoice = null;
+  function renderPicker() {
+    const pool = mode === "emoji" ? EMOJIS : Object.keys(OBJECTS);
+    picker.innerHTML = "";
+    pool.forEach((k) => {
+      const b = document.createElement("button");
+      b.className = "pick";
+      if (mode === "emoji") {
+        const src = EMOJI_ASSETS[normEmoji(k)];
+        b.innerHTML = src ? '<img class="pick-img" src="' + src + '" alt="' + k + '">'
+                          : k;
+        const active = k === pickChoice;
+        b.classList.toggle("active", active);
+        b.addEventListener("click", () => { currentEmoji = k; pickChoice = k; renderPicker(); });
+      } else {
+        b.innerHTML = "▣<small>" + OBJECTS[k] + "</small>";
+        b.style.color = k === pickChoice ? "#fff" : "";
+        b.style.background = k === pickChoice ? "var(--red)" : "";
+        b.addEventListener("click", () => { currentObject = k; pickChoice = k; renderPicker(); });
+      }
+      picker.appendChild(b);
+    });
+  }
+  function setMode(next) {
+    mode = next;
+    for (const [name, btn] of Object.entries(tabBtns)) {
+      btn.classList.toggle("active", name === mode);
+    }
+    if (next !== "select") clearSelection();   // leaving Select drops the gizmo
+    const label = { draw: "DRAW", emoji: "EMOJI", objects: "OBJECTS", select: "SELECT", erase: "ERASE" }[mode];
+    modeLabel.textContent = label;
+    picker.classList.toggle("show", mode === "emoji" || mode === "objects");
+    if (picker.classList.contains("show")) {
+      pickChoice = mode === "emoji" ? currentEmoji : currentObject;
+      renderPicker();
+    }
+  }
+  toolDraw.addEventListener("click", () => setMode("draw"));
+  toolEmoji.addEventListener("click", () => setMode("emoji"));
+  toolObjects.addEventListener("click", () => setMode("objects"));
+  toolSelect.addEventListener("click", () => setMode("select"));
+  toolErase.addEventListener("click", () => setMode("erase"));
+
+  /* ---------- keyboard shortcuts ---------- */
+  window.addEventListener("keydown", (ev) => {
+    if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA") return;
+    if (ev.key === "Escape") {
+      let used = false;
+      if (intro && intro.classList.contains("show")) { closeIntro(); used = true; }
+      if (caseOverlay && caseOverlay.classList.contains("open")) { caseOverlay.classList.remove("open"); used = true; }
+      if (menuPanel.classList.contains("open")) { toggleMenu(false); used = true; }
+      if (sel) { clearSelection(); used = true; }
+      if (used) ev.preventDefault();
+      return;
+    }
+    /* selection ops (repeatable) */
+    if (sel && !ev.ctrlKey && !ev.metaKey) {
+      if (ev.key === "ArrowLeft") { ev.preventDefault(); selRotate(-1); return; }
+      if (ev.key === "ArrowRight") { ev.preventDefault(); selRotate(1); return; }
+      if (ev.key === "Delete") { ev.preventDefault(); deleteSelected(); return; }
+      if (ev.key === "+" || ev.key === "=") { ev.preventDefault(); selScaleBy(1.15); return; }
+      if (ev.key === "-" || ev.key === "_") { ev.preventDefault(); selScaleBy(1 / 1.15); return; }
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "z") { ev.preventDefault(); doUndo(); return; }
+    switch (ev.key.toLowerCase()) {
+      case "b": setMode("draw"); break;
+      case "g": setMode("emoji"); break;
+      case "o": setMode("objects"); break;
+      case "s": setMode("select"); break;
+      case "e": setMode("erase"); break;
+      case "1": case "2": case "3": case "4": case "5": case "6": case "7": case "8": {
+        const sw = swatchesEl.querySelectorAll(".swatch")[+ev.key - 1];
+        if (sw) sw.click();
+        break;
+      }
+    }
+  });
+
+  /* ---------- toolbar buttons ---------- */
+  document.getElementById("undo").addEventListener("click", doUndo);
+  document.getElementById("clear").addEventListener("click", () => {
+    while (strokes.length) removeStrokeRef(strokes[strokes.length - 1]);
+    while (items.length) removeItemRef(items[items.length - 1]);
+    undoStack.length = 0;
+    updateCounts();
+  });
+  document.getElementById("resetCam").addEventListener("click", () => {
+    Object.assign(orbit, ORBIT_HOME);
+    applyCamera();
+  });
+
+  /* ---------- PNG export (with optional transparency) ---------- */
+  const bgCheck = document.getElementById("bgCheck");
+  const bgToggle = document.getElementById("bgToggle");
+  bgCheck.addEventListener("change", () => bgToggle.classList.toggle("on", bgCheck.checked));
+  document.getElementById("savePng").addEventListener("click", () => {
+    const wantTransparent = bgCheck.checked;
+    if (wantTransparent) {
+      renderer.setClearColor(0xeef1f5, 0);
+      scene.fog = null;
+      grid.visible = false; axes.visible = false;
+    }
+    renderer.render(scene, camera);
+    const data = renderer.domElement.toDataURL("image/png");
+    if (wantTransparent) {
+      renderer.setClearColor(0xeef1f5, 1);
+      scene.fog = fog;
+      grid.visible = true; axes.visible = true;
+      renderer.render(scene, camera);
+    }
+    const a = document.createElement("a");
+    a.href = data;
+    a.download = "chroma3d-" + Date.now() + ".png";
+    a.click();
+  });
+
+  /* ---------- artwork save/open (.chroma JSON) ---------- */
+  function serializeArtwork() {
+    return {
+      app: "CHROMA 3D", version: 2, saved: new Date().toISOString(),
+      strokes: strokes.map((s) => ({ points: s.points.map((p) => [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)]), color: s.color, size: s.size, pen: s.pen || "marker", offset: s.mesh.position.toArray().map((v) => +v.toFixed(3)) })),
+      items: items.map((i) => ({
+        kind: i.kind, data: i.data,
+        color: i.kind === "object" ? "#" + i.mesh.material.color.getHexString() : undefined,
+        position: [i.mesh.position.x, i.mesh.position.y, i.mesh.position.z].map((v) => +v.toFixed(3)),
+        rotation: [i.mesh.rotation.x, i.mesh.rotation.y, i.mesh.rotation.z].map((v) => +v.toFixed(3)),
+        roll: i.kind === "emoji" ? +i.mesh.material.rotation.toFixed(4) : undefined,
+      })),
+    };
+  }
+  function loadArtwork(json) {
+    // clear current
+    while (strokes.length) removeStrokeRef(strokes[strokes.length - 1]);
+    while (items.length) removeItemRef(items[items.length - 1]);
+    undoStack.length = 0;
+    for (const s of json.strokes || []) {
+      const pts = s.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+      if (pts.length < 2) continue;
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const geo = new THREE.TubeGeometry(curve, pts.length * 2, s.size || brushSize, 7, false);
+      const stroke = { mesh: new THREE.Mesh(geo, makeMaterial(s.color || color, s.pen || "marker")), points: pts, color: s.color || color, size: s.size || brushSize, pen: s.pen || "marker" };
+      if (s.offset) stroke.mesh.position.fromArray(s.offset);
+      scene.add(stroke.mesh); strokes.push(stroke);
+    }
+    for (const it of json.items || []) {
+      try {
+        let mesh, data = it.data || {};
+        const pos = it.position || [0, 0, 0];
+        if (it.kind === "emoji") {
+          const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture(data.emoji || "😀"), transparent: true }));
+          const s = data.scale || 1.2; spr.scale.set(s, s, s);
+          spr.position.set(pos[0], pos[1], pos[2]);
+          if (data.roll) spr.material.rotation = data.roll;
+          mesh = spr;
+        } else {
+          const geo = OBJECT_BUILDERS[data.object || "box"]();
+          mesh = new THREE.Mesh(geo, makeMaterial(it.color || color));
+          const s = data.scale || 0.5; mesh.scale.setScalar(s);
+          mesh.position.set(pos[0], pos[1], pos[2]);
+          if (it.rotation) mesh.rotation.set(it.rotation[0], it.rotation[1], it.rotation[2]);
+        }
+        scene.add(mesh);
+        items.push({ mesh, kind: it.kind, data });
+      } catch { /* skip malformed item */ }
+    }
+    updateCounts();
+  }
+  document.getElementById("saveJson").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(serializeArtwork())], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "artwork-" + Date.now() + ".chroma";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+  document.getElementById("loadJson").addEventListener("click", () => document.getElementById("fileInput").click());
+  document.getElementById("fileInput").addEventListener("change", (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { loadArtwork(JSON.parse(reader.result)); }
+      catch (e) { console.warn("Not a valid .chroma artwork file", e); }
+    };
+    reader.readAsText(f);
+    ev.target.value = "";
+  });
+
+  /* ---------- pen buttons ---------- */
+  const penBtns = document.getElementById("penBtns");
+  function paintPenActive() {
+    penBtns.querySelectorAll(".pen-btn").forEach((b) => b.classList.toggle("active", b.dataset.pen === currentPen));
+  }
+  Object.entries(PENS).forEach(([name, P]) => {
+    const b = document.createElement("button");
+    b.className = "pen-btn"; b.dataset.pen = name;
+    b.innerHTML = P.ico + "<small>" + P.label + "</small>";
+    b.title = name + " pen";
+    b.addEventListener("click", () => { currentPen = name; paintPenActive(); });
+    penBtns.appendChild(b);
+  });
+  paintPenActive();
+
+  /* ---------- swatches ---------- */
+  const SWATCHES = ["#2563eb", "#e8323f", "#1e293b", "#ffb347", "#4ecdc4", "#7b6cff", "#ff7ab6", "#2f9e4f"];
+  const swatchesEl = document.getElementById("swatches");
+  const customColor = document.getElementById("customColor");
+  function paintSwatchActive() {
+    swatchesEl.querySelectorAll(".swatch").forEach((b) => b.classList.toggle("active", b.dataset.c === color));
+  }
+  SWATCHES.forEach((c) => {
+    const b = document.createElement("button");
+    b.className = "swatch"; b.dataset.c = c;
+    b.style.background = c; b.title = c;
+    b.addEventListener("click", () => { color = c; customColor.value = c; paintSwatchActive(); });
+    swatchesEl.appendChild(b);
+  });
+  customColor.addEventListener("input", () => { color = customColor.value; paintSwatchActive(); });
+  paintSwatchActive();
+
+  /* ---------- sliders ---------- */
+  const size = document.getElementById("size"), sizeOut = document.getElementById("sizeOut");
+  size.addEventListener("input", () => { brushSize = parseFloat(size.value); sizeOut.textContent = brushSize.toFixed(2); });
+  const depth = document.getElementById("depth"), depthOut = document.getElementById("depthOut");
+  depth.addEventListener("input", () => { planeDepth = parseFloat(depth.value); depthOut.textContent = planeDepth.toFixed(1); });
+
+  /* ---------- case study panel ---------- */
+  /* ---------- top-right menu ---------- */
+  const menuBtn = document.getElementById("menuBtn");
+  const menuPanel = document.getElementById("menuPanel");
+  const caseOverlay = document.getElementById("caseOverlay");
+  const intro = document.getElementById("intro");
+
+  function toggleMenu(force) {
+    const open = force !== undefined ? force : !menuPanel.classList.contains("open");
+    menuPanel.classList.toggle("open", open);
+    menuBtn.classList.toggle("active", open);
+  }
+  menuBtn.addEventListener("click", () => toggleMenu());
+  document.addEventListener("pointerdown", (e) => {
+    if (menuPanel.classList.contains("open") && !menuPanel.contains(e.target) && !menuBtn.contains(e.target)) toggleMenu(false);
+  });
+
+  document.getElementById("miCase").addEventListener("click", () => { toggleMenu(false); caseOverlay.classList.add("open"); });
+  document.getElementById("caseClose").addEventListener("click", () => caseOverlay.classList.remove("open"));
+  caseOverlay.addEventListener("click", (e) => { if (e.target === caseOverlay) caseOverlay.classList.remove("open"); });
+  document.getElementById("miCam").addEventListener("click", () => { toggleMenu(false); document.getElementById("resetCam").click(); });
+  document.getElementById("miSave").addEventListener("click", () => { toggleMenu(false); document.getElementById("savePng").click(); });
+  document.getElementById("miSaveJson").addEventListener("click", () => { toggleMenu(false); document.getElementById("saveJson").click(); });
+  document.getElementById("miOpen").addEventListener("click", () => { toggleMenu(false); document.getElementById("loadJson").click(); });
+  const bgCheckMenu = document.getElementById("bgCheckMenu");
+  bgCheckMenu.addEventListener("change", () => { bgCheck.checked = bgCheckMenu.checked; bgCheck.dispatchEvent(new Event("change")); bgToggle.classList.toggle("on", bgCheck.checked); });
+  bgCheck.addEventListener("change", () => { bgCheckMenu.checked = bgCheck.checked; });
+
+  /* ---------- one-time welcome (remembered via localStorage) ---------- */
+  function closeIntro() {
+    intro.classList.remove("show");
+    try { localStorage.setItem("chroma3d-intro-seen", "1"); } catch { /* storage may be blocked */ }
+  }
+  document.getElementById("introOk").addEventListener("click", closeIntro);
+  try { if (localStorage.getItem("chroma3d-intro-seen") !== "1") intro.classList.add("show"); }
+  catch { intro.classList.add("show"); }
+
+  /* ---------- selection action bar ---------- */
+  function deleteSelected() {
+    if (!sel) return;
+    const s = sel;
+    clearSelection();
+    if (s.type === "stroke") { removeStrokeRef(s.ref); }
+    else { removeItemRef(s.ref); }
+    updateCounts();
+  }
+  document.getElementById("selRollL").addEventListener("click", () => selRotate(-1));
+  document.getElementById("selRollR").addEventListener("click", () => selRotate(1));
+  document.getElementById("selScaleUp").addEventListener("click", () => selScaleBy(1.15));
+  document.getElementById("selScaleDown").addEventListener("click", () => selScaleBy(1 / 1.15));
+  document.getElementById("selDelete").addEventListener("click", deleteSelected);
+  document.getElementById("selDone").addEventListener("click", clearSelection);
+
+  /* ---------- resize + loop ---------- */
+  window.addEventListener("resize", () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  renderer.setAnimationLoop(() => {
+    if (sel && selHelper) selHelper.update();
+    renderer.render(scene, camera);
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => boot.classList.add("gone")));
+  </script>
+</body>
+</html>
